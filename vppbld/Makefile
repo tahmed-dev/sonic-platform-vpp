@@ -23,10 +23,6 @@ VPP_REPO_DIR = repo
 VPP_CUSTOM_PLUGINS_DIR = plugins
 VPP_BUILD_JOBS ?= $(or $(SONIC_CONFIG_MAKE_JOBS),4)
 
-# Fallback for slave builds where the git submodule is not available.
-VPP_URL = https://gerrit.fd.io/r/vpp
-VPP_VERSION = 435fda042e68ef90734ef5b3530c0a5b911a3bf8
-
 # VPP source is tracked as a git submodule at $(VPP_REPO_DIR).
 # The submodule commit pins the exact VPP version to build.
 # To update: cd $(VPP_REPO_DIR) && git checkout <new-commit> && cd .. && git add repo
@@ -47,23 +43,13 @@ ALL_TARGETS = $(MAIN_TARGET) $(DERIVED_TARGETS)
 .PHONY: repo_prep build_locally
 
 repo_prep:
-	@# Prefer submodule; fall back to clone if submodule is not initialised
-	@# (e.g. inside sonic-slave where nested submodules are not preserved).
-	if [ -d $(VPP_REPO_DIR)/.git ] || git submodule update --init $(VPP_REPO_DIR) 2>/dev/null; then \
-		cd $(VPP_REPO_DIR) && git checkout . && git clean -fdx; \
-	else \
-		rm -rf $(VPP_REPO_DIR); \
-		git clone $(VPP_URL) $(VPP_REPO_DIR); \
-		cd $(VPP_REPO_DIR) && git checkout $(VPP_VERSION); \
-	fi
-	@# Copy custom plugins if the directory has contents
-	if ls $(VPP_CUSTOM_PLUGINS_DIR)/* >/dev/null 2>&1; then \
-		cp -r $(VPP_CUSTOM_PLUGINS_DIR)/* $(VPP_REPO_DIR)/src/plugins/; \
-	fi
-	cd $(VPP_REPO_DIR) && \
+	git submodule update --init $(VPP_REPO_DIR)
+	cp -r $(VPP_CUSTOM_PLUGINS_DIR)/* $(VPP_REPO_DIR)/src/plugins/
+	pushd $(VPP_REPO_DIR)
 	$(foreach patch,$(VPP_PATCHES),\
-		echo "Applying $(patch)..." && git apply $(patch) && \
+		echo "Applying $(patch)..." && git apply ../$(patch) && \
 	) true
+	popd
 
 $(addprefix $(DEST)/, $(MAIN_TARGET)): build_locally
 
@@ -71,7 +57,7 @@ build_locally: repo_prep
 	pushd $(VPP_REPO_DIR)
 	make UNATTENDED=y PLATFORM=vpp DPDK_MLX4_PMD=n DPDK_MLX5_PMD=n DPDK_MLX5_COMMON_PMD=n install-dep
 	make PLATFORM=vpp DPDK_MLX4_PMD=n DPDK_MLX5_PMD=n DPDK_MLX5_COMMON_PMD=n install-ext-deps
-	CUSTOM_VERSION=$(VPP_VERSION_SONIC) make UNATTENDED=y PLATFORM=vpp \
+	make UNATTENDED=y PLATFORM=vpp \
 		-j$(VPP_BUILD_JOBS) DPDK_MLX4_PMD=n DPDK_MLX5_PMD=n DPDK_MLX5_COMMON_PMD=n pkg-deb
 	pushd build-root
 	@for target in *_$(CONFIGURED_ARCH).deb; do \
