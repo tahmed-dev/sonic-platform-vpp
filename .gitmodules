@@ -1,0 +1,3 @@
+[submodule "vppbld/repo"]
+	path = vppbld/repo
+	url = https://gerrit.fd.io/r/vpp
