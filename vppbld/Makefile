@@ -33,7 +33,7 @@ VPP_BUILD_JOBS ?= $(or $(SONIC_CONFIG_MAKE_JOBS),4)
 #                               to bridge-domain with active worker threads.
 #                               Wraps bd_add/remove_member and l2_output_config vec
 #                               resizes with vlib_worker_thread_barrier_sync/release.
-VPP_PATCHES = ../vpp.patch ../vpp-l2-barrier-sync.patch
+VPP_PATCHES = vpp.patch vpp-l2-barrier-sync.patch
 
 MAIN_TARGET = $(VPPINFRA)
 DERIVED_TARGETS = $(VPP_MAIN) $(VPP_PLUGIN_CORE) $(VPP_PLUGIN_DPDK) \
