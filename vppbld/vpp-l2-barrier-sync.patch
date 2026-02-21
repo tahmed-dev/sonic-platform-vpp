@@ -1,0 +1,119 @@
+diff --git a/src/vnet/l2/l2_input.c b/src/vnet/l2/l2_input.c
+index 23bd5cc99..676859472 100644
+--- a/src/vnet/l2/l2_input.c
++++ b/src/vnet/l2/l2_input.c
+@@ -281,8 +281,10 @@ set_int_l2_mode (vlib_main_t * vm, vnet_main_t * vnet_main,	/*           */
+       /* Interface is already in bridge mode. Undo the existing config. */
+       bd_config = bd_get (config->bd_index);
+ 
+-      /* remove interface from flood vector */
++      /* remove interface from flood vector (barrier: l2_flood reads members) */
++      vlib_worker_thread_barrier_sync (vm);
+       bd_remove_member (bd_config, sw_if_index);
++      vlib_worker_thread_barrier_release (vm);
+ 
+       /* undo any BVI-related config */
+       if (bd_config->bvi_sw_if_index == sw_if_index)
+@@ -318,9 +320,15 @@ set_int_l2_mode (vlib_main_t * vm, vnet_main_t * vnet_main,	/*           */
+       l2_if_adjust--;
+     }
+ 
+-  /* Make sure vector is big enough */
+-  vec_validate_init_empty (l2om->output_node_index_vec, sw_if_index,
+-			   L2OUTPUT_NEXT_DROP);
++  /* Make sure vector is big enough.
++   * Take barrier if vec needs to grow — workers read this in l2output_node. */
++  if (PREDICT_FALSE (sw_if_index >= vec_len (l2om->output_node_index_vec)))
++    {
++      vlib_worker_thread_barrier_sync (vm);
++      vec_validate_init_empty (l2om->output_node_index_vec, sw_if_index,
++			       L2OUTPUT_NEXT_DROP);
++      vlib_worker_thread_barrier_release (vm);
++    }
+ 
+   /* Initialize the l2-input configuration for the interface */
+   if (mode == MODE_L3)
+@@ -427,13 +435,18 @@ set_int_l2_mode (vlib_main_t * vm, vnet_main_t * vnet_main,	/*           */
+ 	  if (L2_BD_PORT_TYPE_NORMAL == port_type ||
+ 	      L2_BD_PORT_TYPE_BVI == port_type)
+ 	    {
+-	      /* Add interface to bridge-domain flood vector */
++	      /* Add interface to bridge-domain flood vector.
++	       * Barrier sync required: l2_flood worker threads iterate
++	       * bd_config->members. vec_insert_elts in bd_add_member may
++	       * realloc the members vec, leaving workers with stale ptrs. */
+ 	      l2_flood_member_t member = {
+ 		.sw_if_index = sw_if_index,
+ 		.flags = member_flags,
+ 		.shg = shg,
+ 	      };
++	      vlib_worker_thread_barrier_sync (vm);
+ 	      bd_add_member (bd_config, &member);
++	      vlib_worker_thread_barrier_release (vm);
+ 	    }
+ 	}
+       else if (mode == MODE_L2_XC)
+diff --git a/src/vnet/l2/l2_output.c b/src/vnet/l2/l2_output.c
+index 7c70cf9f4..343cc877a 100644
+--- a/src/vnet/l2/l2_output.c
++++ b/src/vnet/l2/l2_output.c
+@@ -571,9 +571,11 @@ l2output_init (vlib_main_t * vm)
+   mp->vlib_main = vm;
+   mp->vnet_main = vnet_get_main ();
+ 
+-  /* Create the config vector */
+-  vec_validate (mp->configs, 100);
+-  /* Until we hook up the CLI config, just create 100 sw interface entries  and zero them */
++  /* Create the config vector.
++   * Pre-allocate to 512 entries to avoid runtime vec reallocation races
++   * with worker threads reading l2_output_config in l2output_node.
++   * See: SIGSEGV in l2output_node_fn_icl when adding VxLAN tunnels to BD. */
++  vec_validate (mp->configs, 511);
+ 
+   /* Initialize the feature next-node indexes */
+   feat_bitmap_init_next_nodes (vm,
+@@ -607,17 +609,26 @@ l2output_create_output_node_mapping (vlib_main_t * vlib_main,
+   l2output_main.output_node_index_vec[sw_if_index] = next;
+ }
+ 
+-/* Get a pointer to the config for the given interface */
++/* Get a pointer to the config for the given interface.
++ * Takes barrier sync if vec needs to grow, to protect worker threads
++ * reading configs in l2output_node from stale vec pointers. */
+ l2_output_config_t *
+ l2output_intf_config (u32 sw_if_index)
+ {
+   l2output_main_t *mp = &l2output_main;
+ 
+-  vec_validate (mp->configs, sw_if_index);
++  if (PREDICT_FALSE (sw_if_index >= vec_len (mp->configs)))
++    {
++      vlib_main_t *vm = vlib_get_main ();
++      vlib_worker_thread_barrier_sync (vm);
++      vec_validate (mp->configs, sw_if_index);
++      vlib_worker_thread_barrier_release (vm);
++    }
+   return vec_elt_at_index (mp->configs, sw_if_index);
+ }
+ 
+-/** Enable (or disable) the feature in the bitmap for the given interface. */
++/** Enable (or disable) the feature in the bitmap for the given interface.
++ * Takes barrier sync if vec needs to grow. */
+ void
+ l2output_intf_bitmap_enable (u32 sw_if_index,
+ 			     l2output_feat_masks_t feature_bitmap, u32 enable)
+@@ -625,7 +636,13 @@ l2output_intf_bitmap_enable (u32 sw_if_index,
+   l2output_main_t *mp = &l2output_main;
+   l2_output_config_t *config;
+ 
+-  vec_validate (mp->configs, sw_if_index);
++  if (PREDICT_FALSE (sw_if_index >= vec_len (mp->configs)))
++    {
++      vlib_main_t *vm = vlib_get_main ();
++      vlib_worker_thread_barrier_sync (vm);
++      vec_validate (mp->configs, sw_if_index);
++      vlib_worker_thread_barrier_release (vm);
++    }
+   config = vec_elt_at_index (mp->configs, sw_if_index);
+ 
+   if (enable)

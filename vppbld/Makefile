@@ -23,6 +23,20 @@ GUID = $(shell id -g)
 
 VPP_REPO_DIR = repo
 VPP_CUSTOM_PLUGINS_DIR = plugins
+VPP_BUILD_JOBS ?= $(or $(SONIC_CONFIG_MAKE_JOBS),4)
+
+# VPP source is tracked as a git submodule at $(VPP_REPO_DIR).
+# The submodule commit pins the exact VPP version to build.
+# To update: cd $(VPP_REPO_DIR) && git checkout <new-commit> && cd .. && git add repo
+
+# Patch series applied in order on top of the submodule checkout.
+# vpp.patch                  - SONiC adaptations (libnl, libbpf, vxlan export, version)
+# vpp-l2-barrier-sync.patch  - Fix SIGSEGV in l2output_node when adding interfaces
+#                               to bridge-domain with active worker threads.
+#                               Wraps bd_add/remove_member and l2_output_config vec
+#                               resizes with vlib_worker_thread_barrier_sync/release.
+VPP_PATCHES = vpp.patch vpp-l2-barrier-sync.patch
+
 MAIN_TARGET = $(VPPINFRA)
 DERIVED_TARGETS = $(VPP_MAIN) $(VPP_PLUGIN_CORE) $(VPP_PLUGIN_DPDK) \
 				  $(VPP_PLUGIN_DEV) $(VPP_DEV) $(VPPINFRA_DEV) $(VPPDBG)
@@ -38,18 +52,21 @@ repo_clone:
 	# 1. use installed libnl from sonic. 
 	# 2. use libbpf pulled by vpp
 	# 3. export vxlan main
-	git apply ../vpp.patch
+	$(foreach patch,$(VPP_PATCHES),\
+		echo "Applying $(patch)..." && git apply ../$(patch) && \
+	) true
 	popd
 
 $(addprefix $(DEST)/, $(MAIN_TARGET)):
 	@echo "Downloading all .deb files to $(DEST)..."
-	@( \
-		set -e; \
-		$(foreach deb, $(ALL_TARGETS), \
-			echo "Attempting to download $(DEST)/$(deb)..."; \
-			curl -L -f -o $(DEST)/$(deb) $(VPP_DEB_URL)/$(deb); \
-		) \
-	) || (echo "One or more downloads failed..." && $(MAKE) build_locally -f Makefile)
+#	@( \
+#		set -e; \
+#		$(foreach deb, $(ALL_TARGETS), \
+#			echo "Attempting to download $(DEST)/$(deb)..."; \
+#			curl -L -f -o $(DEST)/$(deb) $(VPP_DEB_URL)/$(deb); \
+#		) \
+#	) || (echo "One or more downloads failed..." && $(MAKE) build_locally -f Makefile)
+	$(MAKE) build_locally -f Makefile
 
 build_locally: repo_clone
 	pushd $(VPP_REPO_DIR)
