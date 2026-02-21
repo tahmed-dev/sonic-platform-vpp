@@ -7,7 +7,7 @@ index 593ea4e98..736fb6704 100644
  DEB_DEPENDS += python3-venv  # ensurepip
  DEB_DEPENDS += python3-dev python3-pip
 -DEB_DEPENDS += libnl-3-dev libnl-route-3-dev libmnl-dev
-+DEB_DEPENDS += libmnl-dev
++DEB_DEPENDS += $(LIBNL3_DEV) $(LIBNL_ROUTE3_DEV) libmnl-dev
  # DEB_DEPENDS += enchant  # for docs
  DEB_DEPENDS += python3-virtualenv
  DEB_DEPENDS += libssl-dev
@@ -46,3 +46,33 @@ index 0885550d2..8b8cd66e4 100644
  
  static u32
  vxlan_eth_flag_change (vnet_main_t *vnm, vnet_hw_interface_t *hi, u32 flags)
+diff --git a/build/external/patches/xdp-tools_1.5.5/0004-fix-unused-parameter-werror.patch b/build/external/patches/xdp-tools_1.5.5/0004-fix-unused-parameter-werror.patch
+new file mode 100644
+index 000000000..a3e21cd0c
+--- /dev/null
++++ b/build/external/patches/xdp-tools_1.5.5/0004-fix-unused-parameter-werror.patch
+@@ -0,0 +1,24 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: Tamer Ahmed <tamerahmed@microsoft.com>
++Date: Sat, 21 Feb 2026 00:00:00 +0000
++Subject: [PATCH 4/4] lib: suppress -Werror=unused-parameter
++
++util.c:iface_get_xdp_feature_flags has unused parameters when
++XDP features are not available.
++
++Signed-off-by: Tamer Ahmed <tamerahmed@microsoft.com>
++---
++ lib/defines.mk | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/lib/defines.mk b/lib/defines.mk
++index abcdef0..1234567 100644
++--- a/lib/defines.mk
+++++ b/lib/defines.mk
++@@ -42,7 +42,7 @@ DEFINES += -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64
++ 
++-CFLAGS += -std=gnu11 -Wextra -Werror $(DEFINES) $(ARCH_INCLUDES)
+++CFLAGS += -std=gnu11 -Wextra -Werror -Wno-error=unused-parameter $(DEFINES) $(ARCH_INCLUDES)
++ BPF_CFLAGS += $(DEFINES) $(filter -ffile-prefix-map=%,$(CFLAGS)) $(filter -I%,$(CFLAGS)) $(ARCH_INCLUDES)
++ 
++ CONFIGMK := $(LIB_DIR)/../config.mk
