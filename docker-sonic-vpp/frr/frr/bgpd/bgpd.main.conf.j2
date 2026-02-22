@@ -115,6 +115,13 @@ router bgp {{ DEVICE_METADATA['localhost']['bgp_asn'] }}
 {% endif %}
 {% endblock bgp_init %}
 !
+{% block evpn_mh_global %}
+{% if (DEVICE_METADATA is defined) and ('localhost' in DEVICE_METADATA) and
+     (DEVICE_METADATA['localhost'].get('evpn_mh_enabled', 'false') == 'true') %}
+  evpn mh startup-delay 30
+{% endif %}
+{% endblock evpn_mh_global %}
+!
 {% block vlan_advertisement %}
 {% for (name, prefix) in VLAN_INTERFACE|pfx_filter %}
 {% if prefix | ipv4 and name not in vnet_intfs %}

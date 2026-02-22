@@ -25,3 +25,18 @@ link-detect
 {% endfor %}
 {% endblock interfaces %}
 !
+{% block evpn_mh %}
+{% if EVPN_ETHERNET_SEGMENT is defined %}
+{% for es_intf, es_config in EVPN_ETHERNET_SEGMENT.items() %}
+{% if es_config.es_id is defined %}
+interface {{ es_intf }}
+ evpn mh es-id {{ es_config.es_id }}
+{% if es_config.es_sys_mac is defined %}
+ evpn mh es-sys-mac {{ es_config.es_sys_mac }}
+{% endif %}
+!
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endblock evpn_mh %}
+!

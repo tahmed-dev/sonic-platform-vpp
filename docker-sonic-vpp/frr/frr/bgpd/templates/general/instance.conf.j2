@@ -33,11 +33,23 @@
 {%   endif %}
 !
     neighbor {{ neighbor_addr }} activate
+{% if bgp_session.get('allowas_in') is defined and bgp_session.get('allowas_in') %}
+    neighbor {{ neighbor_addr }} allowas-in {{ bgp_session['allowas_in'] }}
+{% endif %}
   exit-address-family
 !
 {% if bgp_session["asn"] == bgp_asn and CONFIG_DB__DEVICE_METADATA['localhost']['type'] == "SpineChassisFrontendRouter" %}
   address-family l2vpn evpn
     neighbor {{ neighbor_addr }} activate
+    advertise-all-vni
+  exit-address-family
+{% elif bgp_session.get('evpn_activate', 'false') == 'true' or
+       (CONFIG_DB__DEVICE_METADATA['localhost'].get('evpn_mh_enabled', 'false') == 'true') %}
+  address-family l2vpn evpn
+    neighbor {{ neighbor_addr }} activate
+{% if bgp_session.get('allowas_in') is defined and bgp_session.get('allowas_in') %}
+    neighbor {{ neighbor_addr }} allowas-in {{ bgp_session['allowas_in'] }}
+{% endif %}
     advertise-all-vni
   exit-address-family
 {% endif %}
