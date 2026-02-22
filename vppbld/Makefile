@@ -15,6 +15,8 @@
 SHELL = /bin/bash
 .SHELLFLAGS += -e
 
+VPP_URL = https://gerrit.fd.io/r/vpp
+VPP_DEB_URL = https://packages.buildkite.com/sonic-vpp/vpp/any/pool/any/main/v/vpp
 USER = $(shell id -un)
 UID = $(shell id -u)
 GUID = $(shell id -g)
@@ -39,31 +41,40 @@ MAIN_TARGET = $(VPPINFRA)
 DERIVED_TARGETS = $(VPP_MAIN) $(VPP_PLUGIN_CORE) $(VPP_PLUGIN_DPDK) \
 				  $(VPP_PLUGIN_DEV) $(VPP_DEV) $(VPPINFRA_DEV) $(VPPDBG)
 ALL_TARGETS = $(MAIN_TARGET) $(DERIVED_TARGETS)
-
-.PHONY: repo_prep build_locally
-
-repo_prep:
-	git submodule update --init $(VPP_REPO_DIR)
+.PHONY: repo_clone build_locally
+repo_clone:
+	rm -rf $(VPP_REPO_DIR)
+	git clone $(VPP_URL) $(VPP_REPO_DIR)
 	cp -r $(VPP_CUSTOM_PLUGINS_DIR)/* $(VPP_REPO_DIR)/src/plugins/
 	pushd $(VPP_REPO_DIR)
+	@VPP_VERSION=`cat ../vpp_version`
+	git checkout $$VPP_VERSION
+	# 1. use installed libnl from sonic. 
+	# 2. use libbpf pulled by vpp
+	# 3. export vxlan main
 	$(foreach patch,$(VPP_PATCHES),\
 		echo "Applying $(patch)..." && git apply ../$(patch) && \
 	) true
 	popd
 
-$(addprefix $(DEST)/, $(MAIN_TARGET)): build_locally
+$(addprefix $(DEST)/, $(MAIN_TARGET)):
+	@echo "Downloading all .deb files to $(DEST)..."
+#	@( \
+#		set -e; \
+#		$(foreach deb, $(ALL_TARGETS), \
+#			echo "Attempting to download $(DEST)/$(deb)..."; \
+#			curl -L -f -o $(DEST)/$(deb) $(VPP_DEB_URL)/$(deb); \
+#		) \
+#	) || (echo "One or more downloads failed..." && $(MAKE) build_locally -f Makefile)
+	$(MAKE) build_locally -f Makefile
 
-build_locally: repo_prep
+build_locally: repo_clone
 	pushd $(VPP_REPO_DIR)
-	make UNATTENDED=y PLATFORM=vpp DPDK_MLX4_PMD=n DPDK_MLX5_PMD=n DPDK_MLX5_COMMON_PMD=n install-dep
-	make PLATFORM=vpp DPDK_MLX4_PMD=n DPDK_MLX5_PMD=n DPDK_MLX5_COMMON_PMD=n install-ext-deps
-	make UNATTENDED=y PLATFORM=vpp \
-		-j$(VPP_BUILD_JOBS) DPDK_MLX4_PMD=n DPDK_MLX5_PMD=n DPDK_MLX5_COMMON_PMD=n pkg-deb
+	make UNATTENDED=y PLATFORM=vpp DPDK_MLX4_PMD=n DPDK_MLX5_PMD=n DPDK_MLX5_COMMON_PMD=n install-dep && make PLATFORM=vpp DPDK_MLX4_PMD=n DPDK_MLX5_PMD=n DPDK_MLX5_COMMON_PMD=n install-ext-deps && CUSTOM_VERSION=$(VPP_VERSION_SONIC) make UNATTENDED=y PLATFORM=vpp -j4 DPDK_MLX4_PMD=n DPDK_MLX5_PMD=n DPDK_MLX5_COMMON_PMD=n pkg-deb
 	pushd build-root
 	@for target in *_$(CONFIGURED_ARCH).deb; do \
-		cp $$target $(DEST)/; \
+		cp $$target $(DEST)/
 	done
-	popd
 	popd
 
 $(addprefix $(DEST)/, $(DERIVED_TARGETS)): $(DEST)/% : $(DEST)/$(MAIN_TARGET)
