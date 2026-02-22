@@ -1,0 +1,95 @@
+diff --git a/src/vnet/l2/l2_arp_term.c b/src/vnet/l2/l2_arp_term.c
+index eed9b7af7..975ec624f 100644
+--- a/src/vnet/l2/l2_arp_term.c
++++ b/src/vnet/l2/l2_arp_term.c
+@@ -354,7 +354,7 @@ arp_term_l2bd (vlib_main_t * vm,
+ 	  l2_arp_term_publish_v4_dp (sw_if_index0,
+ 				     &arp0->ip4_over_ethernet[0]);
+ 
+-	  /* lookup BD mac_by_ip4 hash table for MAC entry */
++	  /* Resolve BD config (shared by sender-learn and target-lookup) */
+ 	  ip0 = arp0->ip4_over_ethernet[1].ip4.as_u32;
+ 	  bd_index0 = vnet_buffer (p0)->l2.bd_index;
+ 	  if (PREDICT_FALSE ((bd_index0 != last_bd_index)
+@@ -363,6 +363,81 @@ arp_term_l2bd (vlib_main_t * vm,
+ 	      last_bd_index = bd_index0;
+ 	      last_bd_config = vec_elt_at_index (l2im->bd_configs, bd_index0);
+ 	    }
++
++	  /*
++	   * Learn the sender's IP in the arp-term table so we can
++	   * proxy-reply for this host in the future.  This makes EVPN
++	   * proxy-ARP fully dynamic: every ARP request from an overlay
++	   * host automatically populates the table.
++	   *
++	   * We store the BVI MAC (anycast gateway MAC), NOT the
++	   * sender's real MAC.  This forces all overlay hosts to route
++	   * through the gateway, required for EVPN symmetric IRB.
++	   *
++	   * Only add NEW entries -- never overwrite existing ones.  SAI
++	   * programs entries with the anycast gateway MAC via the API;
++	   * we must not clobber those.
++	   */
++	  {
++	    u32 sender_ip = arp0->ip4_over_ethernet[0].ip4.as_u32;
++	    if (PREDICT_TRUE (sender_ip != 0))
++	      {
++		u64 *existing =
++		  (u64 *) hash_get (last_bd_config->mac_by_ip4, sender_ip);
++		if (!existing)
++		  {
++		    /* Use BVI MAC (anycast GW) instead of sender's real MAC */
++		    u32 bvi_sw = last_bd_config->bvi_sw_if_index;
++		    if (bvi_sw != ~0)
++		      {
++			vnet_sw_interface_t *bvi_si =
++			  vnet_get_sw_interface (vnet_get_main (), bvi_sw);
++			vnet_hw_interface_t *bvi_hi =
++			  vnet_get_hw_interface (vnet_get_main (),
++						bvi_si->hw_if_index);
++			u64 bvi_mac = mac_address_as_u64 (
++			  (mac_address_t *) bvi_hi->hw_address);
++			hash_set (last_bd_config->mac_by_ip4, sender_ip,
++				  bvi_mac);
++			error0 = ETHERNET_ARP_ERROR_l3_src_address_learned;
++		      }
++		  }
++	      }
++	  }
++
++	  /*
++	   * Deep-copy EVERY ARP request and inject into the next L2
++	   * feature so it floods to the BVI and VxLAN tunnels.  The
++	   * kernel on bvivlan<N> sees the ARP request, learns the
++	   * sender's IP->MAC, and neighsyncd propagates it to
++	   * orchagent -> SAI -> EVPN Type-2 advertisement.  Without
++	   * this, arp-term consumes the request and the kernel never
++	   * learns the neighbor (chicken-and-egg).
++	   *
++	   * We clone on every ARP, not just new senders, because:
++	   *  - kernel neighbor entries expire and need refreshing
++	   *  - the one-shot clone may arrive before the kernel is
++	   *    ready to process it (race on first boot)
++	   *  - ARP rate is low; the extra copy is negligible
++	   */
++	  {
++	    u32 bvi_sw = last_bd_config->bvi_sw_if_index;
++	    if (bvi_sw != ~0)
++	      {
++		vlib_buffer_t *copy = vlib_buffer_copy (vm, p0);
++		if (PREDICT_TRUE (copy != 0))
++		  {
++		    u32 copy_bi = vlib_get_buffer_index (vm, copy);
++		    u32 copy_next = vnet_l2_feature_next (
++		      copy, arp_term_next_node_index,
++		      L2INPUT_FEAT_ARP_TERM);
++		    vlib_set_next_frame_buffer (
++		      vm, node, copy_next, copy_bi);
++		  }
++	      }
++	  }
++
++	  /* lookup BD mac_by_ip4 hash table for target MAC entry */
+ 	  macp0 = (u8 *) hash_get (last_bd_config->mac_by_ip4, ip0);
+ 
+ 	  if (PREDICT_FALSE (!macp0))

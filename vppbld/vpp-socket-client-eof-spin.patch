@@ -1,0 +1,60 @@
+diff --git a/src/vlibmemory/socket_client.c b/src/vlibmemory/socket_client.c
+index 78d99518b..7e9db2d99 100644
+--- a/src/vlibmemory/socket_client.c
++++ b/src/vlibmemory/socket_client.c
+@@ -105,12 +105,26 @@ vl_socket_client_read_internal (socket_client_main_t * scm, int wait)
+ 	  if (n < 0)
+ 	    {
+ 	      if (errno == EAGAIN)
+-		continue;
++		{
++		  if (wait && clib_time_now (&scm->clib_time) >= timeout)
++		    {
++		      vec_set_len (scm->socket_rx_buffer, current_rx_index);
++		      return -1;
++		    }
++		  continue;
++		}
+ 
+ 	      clib_unix_warning ("socket_read");
+ 	      vec_set_len (scm->socket_rx_buffer, current_rx_index);
+ 	      return -1;
+ 	    }
++	  if (n == 0)
++	    {
++	      /* EOF — peer (VPP) closed the connection */
++	      clib_unix_warning ("socket_read: EOF (peer closed)");
++	      vec_set_len (scm->socket_rx_buffer, current_rx_index);
++	      return -1;
++	    }
+ 	  current_rx_index += n;
+ 	}
+       vec_set_len (scm->socket_rx_buffer, current_rx_index);
+@@ -134,12 +148,26 @@ vl_socket_client_read_internal (socket_client_main_t * scm, int wait)
+ 	  if (n < 0)
+ 	    {
+ 	      if (errno == EAGAIN)
+-		continue;
++		{
++		  if (wait && clib_time_now (&scm->clib_time) >= timeout)
++		    {
++		      vec_set_len (scm->socket_rx_buffer, current_rx_index);
++		      return -1;
++		    }
++		  continue;
++		}
+ 
+ 	      clib_unix_warning ("socket_read");
+ 	      vec_set_len (scm->socket_rx_buffer, current_rx_index);
+ 	      return -1;
+ 	    }
++	  if (n == 0)
++	    {
++	      /* EOF — peer (VPP) closed the connection */
++	      clib_unix_warning ("socket_read: EOF (peer closed)");
++	      vec_set_len (scm->socket_rx_buffer, current_rx_index);
++	      return -1;
++	    }
+ 	  current_rx_index += n;
+ 	}
+       vec_set_len (scm->socket_rx_buffer, current_rx_index);

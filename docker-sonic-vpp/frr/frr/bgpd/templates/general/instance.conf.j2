@@ -40,6 +40,12 @@
     neighbor {{ neighbor_addr }} activate
     advertise-all-vni
   exit-address-family
+{% elif CONFIG_DB__VXLAN_EVPN_NVO is defined and CONFIG_DB__VXLAN_EVPN_NVO | length > 0 %}
+  address-family l2vpn evpn
+    neighbor {{ neighbor_addr }} activate
+    neighbor {{ neighbor_addr }} allowas-in 1
+    advertise-all-vni
+  exit-address-family
 {% endif %}
 !
 ! end of template: bgpd/templates/general/instance.conf.j2

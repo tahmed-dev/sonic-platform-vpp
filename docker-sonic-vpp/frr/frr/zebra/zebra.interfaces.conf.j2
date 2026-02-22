@@ -4,6 +4,7 @@
 {%   for vnet_name, vnet_metadata in VNET.items() %}
 vrf {{ vnet_name }}
 vni {{ vnet_metadata['vni'] }}
+exit
 !
 {%   endfor %}
 {%  endif %}
@@ -12,6 +13,7 @@ vni {{ vnet_metadata['vni'] }}
 {% block interfaces %}
 ! Enable nht through default route
 ip nht resolve-via-default
+ipv6 nht resolve-via-default
 ! Enable link-detect (default disabled)
 {% for (name, prefix) in INTERFACE|pfx_filter %}
 interface {{ name }}
@@ -23,5 +25,32 @@ interface {{ pc }}
 link-detect
 !
 {% endfor %}
+{% if (DEVICE_METADATA is defined) and ('localhost' in DEVICE_METADATA) and ('subtype' in DEVICE_METADATA['localhost']) and (DEVICE_METADATA['localhost']['subtype'].lower() == 'dualtor') %}
+! Disable link-detect on VLAN interfaces for dualtor
+{% for (name, prefix) in VLAN_INTERFACE|pfx_filter|unique(attribute=0) %}
+interface {{ name }}
+no link-detect
+!
+{% endfor %}
+{% endif %}
 {% endblock interfaces %}
+!
+{% block evpn_mh %}
+{% if EVPN_ETHERNET_SEGMENT is defined %}
+{% for es_intf, es_config in EVPN_ETHERNET_SEGMENT.items() %}
+{% if es_config.es_id is defined %}
+interface {{ es_intf }}
+ evpn mh es-id {{ es_config.es_id }}
+{% if es_config.es_sys_mac is defined %}
+ evpn mh es-sys-mac {{ es_config.es_sys_mac }}
+{% endif %}
+{% if es_config.df_pref is defined %}
+ evpn mh es-df-pref {{ es_config.df_pref }}
+{% endif %}
+!
+{% endif %}
+{% endfor %}
+evpn mh startup-delay 30
+{% endif %}
+{% endblock evpn_mh %}
 !

@@ -35,7 +35,27 @@ VPP_BUILD_JOBS ?= $(or $(SONIC_CONFIG_MAKE_JOBS),4)
 #                               to bridge-domain with active worker threads.
 #                               Wraps bd_add/remove_member and l2_output_config vec
 #                               resizes with vlib_worker_thread_barrier_sync/release.
-VPP_PATCHES = vpp.patch vpp-l2-barrier-sync.patch
+# vpp-socket-client-eof-spin.patch - Fix syncd 100% CPU spin when VPP dies:
+#                               vl_socket_client_read_internal() busy-loops on
+#                               read() returning 0 (EOF) and on EAGAIN without
+#                               timeout check. Adds EOF detection and timeout
+#                               checks to both inner read loops.
+# vpp-l2output-bounds-check.patch - Fix SIGSEGV in l2output_node worker thread:
+#                               Stale L2 FIB entries (e.g. deleted VxLAN tunnel)
+#                               can reference sw_if_index beyond vec_len(configs)
+#                               or output_node_index_vec. Adds bounds check in
+#                               the hot path before vec_elt_at_index.
+# vpp-l2-arp-term-learn-sender.patch - Dynamic proxy-ARP for EVPN MH:
+#                               Learn the sender's IP→MAC from every ARP request
+#                               processed by arp-term, so future ARPs targeting
+#                               that host get proxy-replied without static config
+#                               or control-plane programming.
+#
+# vpp-lcp-arp-clone-requests.patch - Deliver ARP requests to BVI kernel tap:
+#                               linux-cp-arp-phy already clones ARP replies to
+#                               the BVI host tap; extend to also clone requests
+#                               so the kernel learns server IP→MAC.
+VPP_PATCHES = vpp.patch vpp-l2-barrier-sync.patch vpp-socket-client-eof-spin.patch vpp-l2-learn-static-bvi-no-drop.patch vpp-l2output-bounds-check.patch vpp-l2-arp-term-learn-sender.patch vpp-lcp-arp-clone-requests.patch
 
 MAIN_TARGET = $(VPPINFRA)
 DERIVED_TARGETS = $(VPP_MAIN) $(VPP_PLUGIN_CORE) $(VPP_PLUGIN_DPDK) \

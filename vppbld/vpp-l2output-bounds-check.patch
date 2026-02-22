@@ -1,0 +1,102 @@
+diff --git a/src/vnet/l2/l2_output.c b/src/vnet/l2/l2_output.c
+index 343cc877a..c0dd6fcbf 100644
+--- a/src/vnet/l2/l2_output.c
++++ b/src/vnet/l2/l2_output.c
+@@ -367,6 +367,23 @@ VLIB_NODE_FN (l2output_node) (vlib_main_t * vm,
+       count = clib_count_equal_u32 (sw_if_index, n_left);
+       n_left -= count;
+ 
++      /*
++       * Bounds-check sw_if_index against both the configs and
++       * output_node_index vectors.  A stale L2 FIB entry (e.g. from
++       * a deleted VxLAN tunnel) can reference a sw_if_index beyond
++       * vec_len.  Without this guard, vec_elt_at_index dereferences
++       * unmapped memory -> SIGSEGV in worker threads.
++       */
++      if (PREDICT_FALSE (sw_if_index[0] >= vec_len (msm->configs) ||
++			 sw_if_index[0] >=
++			   vec_len (l2output_main.output_node_index_vec)))
++	{
++	  clib_memset_u16 (nexts + off, L2OUTPUT_NEXT_DROP, count);
++	  l2output_set_buffer_error
++	    (b, count, node->errors[L2OUTPUT_ERROR_MAPPING_DROP]);
++	  continue;
++	}
++
+       config = vec_elt_at_index (msm->configs, sw_if_index[0]);
+       feature_bitmap = config->feature_bitmap;
+       if (PREDICT_FALSE ((feature_bitmap & ~L2OUTPUT_FEAT_OUTPUT) != 0))
+@@ -595,18 +612,48 @@ VLIB_INIT_FUNCTION (l2output_init);
+ 
+ 
+ #ifndef CLIB_MARCH_VARIANT
+-/** Create a mapping in the next node mapping table for the given sw_if_index. */
+-void
++/**
++ * Create (or refresh) a mapping in the next-node mapping table for the
++ * given sw_if_index.  Safe to call repeatedly — idempotent.
++ *
++ * Returns the next-node index on success, or L2OUTPUT_NEXT_DROP on failure.
++ *
++ * Ensures output_node_index_vec is large enough and uses an atomic release
++ * store so that worker threads reading the vec in l2output_node see a
++ * consistent value without requiring a full barrier sync on every call.
++ */
++u32
+ l2output_create_output_node_mapping (vlib_main_t * vlib_main,
+ 				     vnet_main_t * vnet_main, u32 sw_if_index)
+ {
++  l2output_main_t *mp = &l2output_main;
+   vnet_hw_interface_t *hw0 =
+     vnet_get_sup_hw_interface (vnet_main, sw_if_index);
+ 
+-  /* dynamically create graph node arc  */
++  if (PREDICT_FALSE (!hw0))
++    return L2OUTPUT_NEXT_DROP;
++
++  /* Grow the vector under barrier if needed — workers read the vec pointer
++   * in the l2output hot path; a realloc without barrier would leave them
++   * dereferencing freed memory. */
++  if (PREDICT_FALSE (sw_if_index >= vec_len (mp->output_node_index_vec)))
++    {
++      vlib_worker_thread_barrier_sync (vlib_main);
++      vec_validate_init_empty (mp->output_node_index_vec, sw_if_index,
++			       L2OUTPUT_NEXT_DROP);
++      vlib_worker_thread_barrier_release (vlib_main);
++    }
++
++  /* dynamically create graph node arc (idempotent — returns existing arc
++   * index if the edge already exists) */
+   u32 next = vlib_node_add_next (vlib_main, l2output_node.index,
+ 				 hw0->output_node_index);
+-  l2output_main.output_node_index_vec[sw_if_index] = next;
++
++  /* Atomic release store so workers see the new mapping without a full
++   * barrier.  Workers only ever load this slot. */
++  clib_atomic_store_rel_n (&mp->output_node_index_vec[sw_if_index], next);
++
++  return next;
+ }
+ 
+ /* Get a pointer to the config for the given interface.
+diff --git a/src/vnet/l2/l2_output.h b/src/vnet/l2/l2_output.h
+index 201f5e195..6c32f8470 100644
+--- a/src/vnet/l2/l2_output.h
++++ b/src/vnet/l2/l2_output.h
+@@ -149,10 +149,12 @@ u8 *format_l2_output_features (u8 * s, va_list * args);
+  * These functions help the feature nodes get that node index.
+  */
+ 
+-/* Create a mapping to the output graph node for the given sw_if_index */
+-void l2output_create_output_node_mapping (vlib_main_t * vlib_main,
+-					  vnet_main_t * vnet_main,
+-					  u32 sw_if_index);
++/* Create (or refresh) a mapping to the output graph node for the given
++ * sw_if_index.  Idempotent and safe to call from main thread while
++ * workers are running.  Returns next-node index or L2OUTPUT_NEXT_DROP. */
++u32 l2output_create_output_node_mapping (vlib_main_t * vlib_main,
++					 vnet_main_t * vnet_main,
++					 u32 sw_if_index);
+ 
+ /** Get a pointer to the config for the given interface */
+ l2_output_config_t *l2output_intf_config (u32 sw_if_index);
