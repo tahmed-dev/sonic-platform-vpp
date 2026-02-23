@@ -1,0 +1,38 @@
+diff --git a/src/vnet/l2/l2_learn.c b/src/vnet/l2/l2_learn.c
+index 24b5389e5..54f43366c 100644
+--- a/src/vnet/l2/l2_learn.c
++++ b/src/vnet/l2/l2_learn.c
+@@ -80,6 +80,7 @@ _(L2LEARN,           "L2 learn packets")		\
+ _(MISS,              "L2 learn misses")			\
+ _(MAC_MOVE,          "L2 mac moves")			\
+ _(MAC_MOVE_VIOLATE,  "L2 mac move violations")		\
++_(MAC_MOVE_VIOLATE_BVI, "L2 mac move violations (BVI, forwarded)")	\
+ _(LIMIT,             "L2 not learned due to limit")	\
+ _(HIT_UPDATE,        "L2 learn hit updates")		\
+ _(FILTER_DROP,       "L2 filter mac drops")
+@@ -201,9 +202,23 @@ l2learn_process (vlib_node_runtime_t * node,
+       if (l2fib_entry_result_is_set_STATIC (result0))
+ 	{
+ 	  /*
+-	   * Don't overwrite a static mac
+-	   * TODO: Check violation policy. For now drop the packet
++	   * Don't overwrite a static mac.
++	   *
++	   * If the static entry is a BVI entry, don't drop the packet.
++	   * This handles EVPN anycast gateway: both local and remote VTEPs
++	   * share the same anycast MAC on their BVI interfaces.  When a
++	   * remote VTEP's ARP reply (carrying the shared anycast source MAC)
++	   * arrives via VxLAN, the l2-learn node sees a MAC move from the
++	   * local BVI to the tunnel interface.  Dropping the packet would
++	   * kill legitimate traffic.  Instead, silently ignore the learn
++	   * attempt and let the packet continue to l2-fwd.
+ 	   */
++	  if (l2fib_entry_result_is_set_BVI (result0))
++	    {
++	      counter_base[L2LEARN_ERROR_MAC_MOVE_VIOLATE_BVI] += 1;
++	      return;  /* Don't update MAC; continue to l2-fwd */
++	    }
++
+ 	  b0->error = node->errors[L2LEARN_ERROR_MAC_MOVE_VIOLATE];
+ 	  *next0 = L2LEARN_NEXT_DROP;
+ 	  return;

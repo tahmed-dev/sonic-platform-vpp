@@ -40,7 +40,7 @@ VPP_BUILD_JOBS ?= $(or $(SONIC_CONFIG_MAKE_JOBS),4)
 #                               read() returning 0 (EOF) and on EAGAIN without
 #                               timeout check. Adds EOF detection and timeout
 #                               checks to both inner read loops.
-VPP_PATCHES = vpp.patch vpp-l2-barrier-sync.patch vpp-socket-client-eof-spin.patch
+VPP_PATCHES = vpp.patch vpp-l2-barrier-sync.patch vpp-socket-client-eof-spin.patch vpp-l2-learn-static-bvi-no-drop.patch
 
 MAIN_TARGET = $(VPPINFRA)
 DERIVED_TARGETS = $(VPP_MAIN) $(VPP_PLUGIN_CORE) $(VPP_PLUGIN_DPDK) \
