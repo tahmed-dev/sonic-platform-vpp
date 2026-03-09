@@ -27,7 +27,7 @@
 
 #DPKG FRK
 DPATH       := $($(SYNCD_VPP)_PATH)
-DEP_FILES   := $(SONIC_COMMON_FILES_LIST) $(PLATFORM_RULES)/syncd-vpp.mk $(PLATFORM_RULES)/syncd-vpp.dep
+DEP_FILES   := $(SONIC_COMMON_FILES_LIST) $(PLATFORM_PATH)/syncd-vpp.mk $(PLATFORM_PATH)/syncd-vpp.dep
 DEP_FILES   += $(SONIC_COMMON_BASE_FILES_LIST)
 DEP_FILES   += $(shell git ls-files $(DPATH))
 
